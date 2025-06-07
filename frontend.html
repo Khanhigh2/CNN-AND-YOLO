@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Defect Detection Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        #video, #canvas { max-width: 100%; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Defect Detection System</h1>
+    
+    <div class="card">
+        <h2>📸 Camera Test</h2>
+        <video id="video" width="400" height="300" autoplay playsinline></video>
+        <canvas id="canvas" class="hidden" width="400" height="300"></canvas>
+        <br>
+        <button onclick="startCamera()">Start Camera</button>
+        <button onclick="captureImage()" id="captureBtn" disabled>Capture</button>
+        <button onclick="detectDefects()" id="detectBtn" disabled>Detect Defects</button>
+    </div>
+    
+    <div class="card">
+        <h2>📊 Results</h2>
+        <div id="results">No results yet</div>
+    </div>
+    
+    <div class="card">
+        <h2>🔧 System Status</h2>
+        <div id="status">Testing system...</div>
+    </div>
+
+    <script>
+        let video, canvas, ctx;
+        let capturedImage = null;
+        let serverAvailable = false;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            video = document.getElementById('video');
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+            
+            checkServer();
+        });
+
+        async function checkServer() {
+            const statusDiv = document.getElementById('status');
+            try {
+                const response = await fetch('http://localhost:5000/api/test', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    statusDiv.innerHTML = `
+                        <div class="status success">
+                            ✅ Backend Server: Online<br>
+                            Message: ${data.message}
+                        </div>
+                    `;
+                    serverAvailable = true;
+                } else {
+                    throw new Error('Server responded with error');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div class="status warning">
+                        ⚠️ Backend Server: Offline<br>
+                        Running in demo mode<br>
+                        Error: ${error.message}
+                    </div>
+                `;
+                serverAvailable = false;
+            }
+        }
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 400, height: 300 } 
+                });
+                video.srcObject = stream;
+                
+                document.getElementById('captureBtn').disabled = false;
+                
+                document.getElementById('status').innerHTML += `
+                    <div class="status success">✅ Camera: Active</div>
+                `;
+            } catch (error) {
+                document.getElementById('status').innerHTML += `
+                    <div class="status error">❌ Camera Error: ${error.message}</div>
+                `;
+            }
+        }
+
+        function captureImage() {
+            ctx.drawImage(video, 0, 0, 400, 300);
+            capturedImage = canvas.toDataURL('image/jpeg', 0.8);
+            
+            document.getElementById('detectBtn').disabled = false;
+            document.getElementById('results').innerHTML = `
+                <div class="status success">✅ Image captured successfully</div>
+                <img src="${capturedImage}" style="max-width: 300px; border-radius: 5px;">
+            `;
+        }
+
+        async function detectDefects() {
+            if (!capturedImage) {
+                alert('Please capture an image first');
+                return;
+            }
+
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="status warning">🔄 Analyzing image...</div>';
+
+            if (serverAvailable) {
+                try {
+                    const response = await fetch('http://localhost:5000/api/detect', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            image: capturedImage
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        displayResults(data);
+                    } else {
+                        throw new Error('Detection failed');
+                    }
+                } catch (error) {
+                    resultsDiv.innerHTML = `
+                        <div class="status error">❌ Detection failed: ${error.message}</div>
+                    `;
+                }
+            } else {
+                // Demo mode
+                setTimeout(() => {
+                    displayResults({
+                        success: true,
+                        has_defects: Math.random() > 0.5,
+                        message: Math.random() > 0.5 ? 
+                            "Không phát hiện ra lỗi (Demo mode)" : 
+                            "Phát hiện 1 lỗi: demo_defect (Demo mode)",
+                        defect_count: Math.random() > 0.5 ? 0 : 1,
+                        defect_names: Math.random() > 0.5 ? [] : ["demo_defect"]
+                    });
+                }, 2000);
+            }
+        }        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            
+            if (data.success) {
+                if (data.has_defects) {
+                    // Get defect types - handle different field names
+                    let defectTypesText = 'Unknown';
+                    if (data.defect_names && data.defect_names.length > 0) {
+                        defectTypesText = data.defect_names.join(', ');
+                    } else if (data.defect_types && data.defect_types.length > 0) {
+                        defectTypesText = data.defect_types.join(', ');
+                    }
+                      // Use annotated image if available, otherwise original
+                    let imageToShow = capturedImage;
+                    if (data.annotated_image) {
+                        imageToShow = 'data:image/jpeg;base64,' + data.annotated_image;
+                    } else if (data.result_image) {
+                        imageToShow = 'data:image/jpeg;base64,' + data.result_image;
+                    }
+                    
+                    resultsDiv.innerHTML = `
+                        <div class="status error">⚠️ ${data.message}</div>
+                        <p><strong>Defects found:</strong> ${data.defect_count || 'Unknown'}</p>
+                        <p><strong>Types:</strong> ${defectTypesText}</p>
+                        <div style="margin-top: 15px;">
+                            <p><strong>Annotated Image with Bounding Boxes:</strong></p>
+                            <img src="${imageToShow}" style="max-width: 100%; border-radius: 5px; border: 2px solid #dc3545;">
+                        </div>
+                    `;
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="status success">✅ ${data.message}</div>
+                        <p>Product quality: Good</p>
+                        <img src="${capturedImage}" style="max-width: 300px; border-radius: 5px;">
+                    `;
+                }
+            } else {
+                resultsDiv.innerHTML = `
+                    <div class="status error">❌ Error: ${data.error || 'Unknown error'}</div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
